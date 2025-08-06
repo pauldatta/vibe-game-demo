@@ -1,5 +1,7 @@
 # Flappy Merlion Task List
 
+*Last Updated: Monday, 4 August 2025*
+
 ## Phase 1: Project Setup & Asset Generation
 
 - [x] Create `index.html`

@@ -20,3 +20,6 @@ yarn-error.log*
 # IDE specific
 .idea/
 .vscode/
+
+# macOS
+.DS_Store

@@ -1,206 +1,199 @@
-// --- SETUP ---
-const scene = new THREE.Scene();
-const camera = new THREE.OrthographicCamera(0, 800, 600, 0, 1, 1000);
-camera.position.z = 500;
-const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('game-canvas') });
-renderer.setSize(800, 600);
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
 
-// --- DOM ELEMENTS ---
-const scoreElement = document.getElementById('score');
-const startScreen = document.getElementById('start-screen');
-const gameOverScreen = document.getElementById('game-over-screen');
-const finalScoreElement = document.getElementById('final-score');
-const restartButton = document.getElementById('restart-button');
-
-// --- GAME VARIABLES ---
-let gameState = 'start'; // 'start', 'playing', 'gameover'
 let score = 0;
-let merlion, background, obstacleGroup;
-let velocity = 0;
-const gravity = -0.5;
-const flapStrength = 10;
-const obstacleSpeed = -4;
-const obstacleGap = 200;
-const spawnInterval = 1500; // ms
-let lastSpawn = 0;
+let isGameOver = false;
 
+// Player
+const player = {
+    x: 50,
+    y: canvas.height / 2,
+    width: 50,
+    height: 50,
+    gravity: 0.6,
+    lift: -15,
+    velocity: 0
+};
 
-// --- LOAD ASSETS ---
-const textureLoader = new THREE.TextureLoader();
+const playerImage = new Image();
+playerImage.src = 'assets/images/merlion.png';
 
-function init() {
-    // Background
-    const backgroundTexture = textureLoader.load('assets/images/background.png');
-    const backgroundMaterial = new THREE.MeshBasicMaterial({ map: backgroundTexture });
-    const backgroundGeometry = new THREE.PlaneGeometry(800, 600);
-    background = new THREE.Mesh(backgroundGeometry, backgroundMaterial);
-    background.position.set(400, 300, 0); // Center it
-    scene.add(background);
-
-    // Merlion
-    const merlionTexture = textureLoader.load('assets/images/merlion.png');
-    const merlionMaterial = new THREE.MeshBasicMaterial({ map: merlionTexture, transparent: true });
-    const merlionGeometry = new THREE.PlaneGeometry(80, 80); // Adjust size as needed
-    merlion = new THREE.Mesh(merlionGeometry, merlionMaterial);
-    merlion.position.set(150, 300, 1);
-    scene.add(merlion);
-
-    // Obstacles
-    obstacleGroup = new THREE.Group();
-    scene.add(obstacleGroup);
-
-    // Set initial state
-    resetGame();
-    animate();
+function drawPlayer() {
+    ctx.drawImage(playerImage, player.x, player.y, player.width, player.height);
 }
 
-// --- GAME LOGIC ---
-function resetGame() {
-    score = 0;
-    velocity = 0;
-    merlion.position.y = 300;
-    scoreElement.innerText = `Score: ${score}`;
-    startScreen.classList.add('active');
-    gameOverScreen.classList.remove('active');
-    gameState = 'start';
+function updatePlayer() {
+    player.velocity += player.gravity;
+    player.y += player.velocity;
 
-    // Clear existing obstacles
-    while (obstacleGroup.children.length > 0) {
-        obstacleGroup.remove(obstacleGroup.children[0]);
+    if (player.y + player.height > canvas.height) {
+        player.y = canvas.height - player.height;
+        player.velocity = 0;
+        gameOver();
     }
-    lastSpawn = 0;
+
+    if (player.y < 0) {
+        player.y = 0;
+        player.velocity = 0;
+        gameOver();
+    }
 }
 
-function startGame() {
-    gameState = 'playing';
-    startScreen.classList.remove('active');
+function playerJump() {
+    if (!isGameOver) {
+        player.velocity = player.lift;
+    }
 }
 
-function endGame() {
-    gameState = 'gameover';
-    finalScoreElement.innerText = score;
-    gameOverScreen.classList.add('active');
+// Obstacles
+let obstacles = [];
+const obstacleWidth = 80;
+const obstacleGap = 200;
+const obstacleSpeed = 5;
+let frameCount = 0;
+
+const obstacleImage = new Image();
+obstacleImage.src = 'assets/images/obstacle.png';
+
+function createObstacle() {
+    const obstacleY = Math.random() * (canvas.height - obstacleGap - 200) + 100;
+    obstacles.push({
+        x: canvas.width,
+        y: obstacleY + obstacleGap,
+        width: obstacleWidth,
+        height: canvas.height - obstacleY - obstacleGap,
+        isTop: false,
+        passed: false
+    });
+    obstacles.push({
+        x: canvas.width,
+        y: 0,
+        width: obstacleWidth,
+        height: obstacleY,
+        isTop: true,
+        passed: false
+    });
 }
 
-function flap() {
-    velocity = flapStrength;
-}
-
-function spawnObstacle() {
-    const obstacleHeight = 600; // Assuming the obstacle image is tall
-    const obstacleWidth = 100;
-    const gapCenter = Math.random() * (400 - 100) + 150; // Randomize gap position
-
-    const obstacleTexture = textureLoader.load('assets/images/obstacle.png');
-    const obstacleMaterial = new THREE.MeshBasicMaterial({ map: obstacleTexture, transparent: true });
-
-    // Top Obstacle
-    const topGeometry = new THREE.PlaneGeometry(obstacleWidth, obstacleHeight);
-    const topObstacle = new THREE.Mesh(topGeometry, obstacleMaterial);
-    topObstacle.position.set(900, gapCenter + obstacleGap / 2 + obstacleHeight / 2, 1);
-    topObstacle.userData = { type: 'obstacle' };
-    obstacleGroup.add(topObstacle);
-
-    // Bottom Obstacle
-    const bottomGeometry = new THREE.PlaneGeometry(obstacleWidth, obstacleHeight);
-    const bottomObstacle = new THREE.Mesh(bottomGeometry, obstacleMaterial);
-    bottomObstacle.position.set(900, gapCenter - obstacleGap / 2 - obstacleHeight / 2, 1);
-    bottomObstacle.userData = { type: 'obstacle' };
-    obstacleGroup.add(bottomObstacle);
-    
-    // Score Zone
-    const scoreZoneGeometry = new THREE.PlaneGeometry(10, obstacleGap);
-    const scoreZoneMaterial = new THREE.MeshBasicMaterial({visible: false});
-    const scoreZone = new THREE.Mesh(scoreZoneGeometry, scoreZoneMaterial);
-    scoreZone.position.set(900 + obstacleWidth/2, gapCenter, 1);
-    scoreZone.userData = {type: 'scoreZone', passed: false};
-    obstacleGroup.add(scoreZone);
+function drawObstacles() {
+    obstacles.forEach(obstacle => {
+        ctx.drawImage(obstacleImage, obstacle.x, obstacle.y, obstacle.width, obstacle.height);
+    });
 }
 
 function updateObstacles() {
-    if (Date.now() - lastSpawn > spawnInterval) {
-        spawnObstacle();
-        lastSpawn = Date.now();
+    if (frameCount % 90 === 0) {
+        createObstacle();
     }
 
-    const merlionBox = new THREE.Box3().setFromObject(merlion);
+    obstacles.forEach(obstacle => {
+        obstacle.x -= obstacleSpeed;
 
-    for (let i = obstacleGroup.children.length - 1; i >= 0; i--) {
-        const obstacle = obstacleGroup.children[i];
-        obstacle.position.x += obstacleSpeed;
-
-        // Collision detection
-        const obstacleBox = new THREE.Box3().setFromObject(obstacle);
-        if (obstacle.userData.type === 'obstacle' && merlionBox.intersectsBox(obstacleBox)) {
-            endGame();
+        if (!obstacle.passed && obstacle.x + obstacle.width < player.x) {
+            if (!obstacle.isTop) {
+                score++;
+            }
+            obstacle.passed = true;
         }
-        
-        // Score detection
-        if (obstacle.userData.type === 'scoreZone' && !obstacle.userData.passed && merlionBox.intersectsBox(obstacleBox)) {
-            score++;
-            scoreElement.innerText = `Score: ${score}`;
-            obstacle.userData.passed = true;
-        }
+    });
 
-
-        // Remove off-screen obstacles
-        if (obstacle.position.x < -100) {
-            obstacleGroup.remove(obstacle);
-        }
+    // Remove off-screen obstacles
+    if (obstacles.length > 0 && obstacles[0].x + obstacleWidth < 0) {
+        obstacles.splice(0, 2);
     }
 }
 
-
-function update() {
-    if (gameState === 'playing') {
-        // Apply gravity
-        velocity += gravity;
-        merlion.position.y += velocity;
-
-        // Check boundaries
-        if (merlion.position.y > 600 - 40) { // Top boundary
-            merlion.position.y = 600 - 40;
-            velocity = 0;
+function checkCollisions() {
+    obstacles.forEach(obstacle => {
+        if (
+            player.x < obstacle.x + obstacle.width &&
+            player.x + player.width > obstacle.x &&
+            player.y < obstacle.y + obstacle.height &&
+            player.y + player.height > obstacle.y
+        ) {
+            gameOver();
         }
+    });
+}
 
-        if (merlion.position.y < 40) { // Bottom boundary
-            merlion.position.y = 40;
-            velocity = 0;
-            endGame();
-        }
-
-        updateObstacles();
-    }
+// Score
+function drawScore() {
+    ctx.fillStyle = 'black';
+    ctx.font = '30px Arial';
+    ctx.fillText('Score: ' + score, 10, 30);
 }
 
 
-// --- RENDER LOOP ---
-function animate() {
-    requestAnimationFrame(animate);
-    update();
-    renderer.render(scene, camera);
+// Game Over
+function gameOver() {
+    isGameOver = true;
+    ctx.fillStyle = 'black';
+    ctx.font = '50px Arial';
+    ctx.fillText('Game Over', canvas.width / 2 - 150, canvas.height / 2 - 50);
+    ctx.font = '20px Arial';
+    ctx.fillText('Click or press Space to restart', canvas.width / 2 - 150, canvas.height / 2);
 }
 
-// --- EVENT LISTENERS ---
-window.addEventListener('keydown', (event) => {
+function restartGame() {
+    isGameOver = false;
+    score = 0;
+    player.y = canvas.height / 2;
+    player.velocity = 0;
+    obstacles = [];
+    frameCount = 0;
+    gameLoop();
+}
+
+
+// Event Listeners
+document.addEventListener('keydown', function(event) {
     if (event.code === 'Space') {
-        if (gameState === 'start') {
-            startGame();
-            flap();
-        } else if (gameState === 'playing') {
-            flap();
+        if (isGameOver) {
+            restartGame();
+        } else {
+            playerJump();
         }
     }
 });
 
-restartButton.addEventListener('click', () => {
-    resetGame();
-    // We need to re-add the start screen active class
-    // because the resetGame function is also called at the beginning
-    startScreen.classList.add('active');
-    gameOverScreen.classList.remove('active');
+document.addEventListener('click', function() {
+    if (isGameOver) {
+        restartGame();
+    } else {
+        playerJump();
+    }
 });
 
 
-// --- INITIALIZE ---
-init();
+function gameLoop() {
+    if (isGameOver) {
+        return;
+    }
+
+    // Clear canvas
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Draw background
+    ctx.fillStyle = '#70c5ce';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Player
+    drawPlayer();
+    updatePlayer();
+
+    // Obstacles
+    drawObstacles();
+    updateObstacles();
+
+    // Collisions
+    checkCollisions();
+
+    // Score
+    drawScore();
+
+    frameCount++;
+    requestAnimationFrame(gameLoop);
+}
+
+// Start the game
+gameLoop();
